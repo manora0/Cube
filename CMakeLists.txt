@@ -7,3 +7,4 @@ set(CMAKE_CXX_STANDARD 20)
 add_executable(cube src/main.cpp)
 
 target_link_libraries(cube PRIVATE raylib)
+add_subdirectory(raylib)
