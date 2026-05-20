@@ -16,4 +16,4 @@ endif()
 
 add_executable(cube src/main.cpp)
 
-target_link_libraries(cube PRIVATE raylib)
+target_link_libraries(cube PRIVATE raylib X11)
