@@ -1,32 +1,71 @@
-/*******************************************************************************************
-*
-*   raylib [core] example - 3d picking
-*
-*   Example complexity rating: [★★☆☆] 2/4
-*
-*   Example originally created with raylib 1.3, last time updated with raylib 4.0
-*
-*   Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
-*   BSD-like license that allows static linking with closed source software
-*
-*   Copyright (c) 2015-2025 Ramon Santamaria (@raysan5)
-*
-********************************************************************************************/
-
 #include "raylib.h"
 #include <cfloat>
 #include <vector>
+#include <cstdint>
+#include <map>
 
-class Cube {
+enum color { W, R, O, Y, G, B };
 
+Color edgeColors[12][2] = {
+    { W, G }, { W, O }, { W, B }, { W, R },
+    { G, O }, { O, B }, { B, R }, { R, G },
+    { G, Y }, { O, Y }, { B, Y }, { R, Y }
+};
+
+Color cornerColors[8][3] = {
+    { W, G, O }, { W, O, B }, { W, B, R }, { W, R, G },
+    { G, O, Y }, { O, B, Y }, { B, R, Y }, { R, G, Y }
+};
+
+std::map<color, Color> colorMap = {
+    { W, WHITE }, { R, RED }, { O, ORANGE }, { Y, YELLOW }, { G, GREEN }, { B, BLUE }
+};
+
+
+struct CubeState {
+    // FRONT FACE IS GREEN
+
+    // LAYER                |------------D-----------|-----------M-----------|-----------U-----------|
+    // POSITIONS            |---11-|--10-|--9--|--8--|--7--|--6--|--5--|--4--|--3--|--2--|--1--|--0--|
+    uint64_t edges_solved = 0b01011'01010'01001'01000'00111'00110'00101'00100'00011'00010'00001'00000;
+    // LAYER                |------------D-------------|-----------U-----------|
+    // POSITIONS            |-----7--|--6--|--5--|--4--|--3--|--2--|--1--|--0--|
+    uint64_t corners_solved = 0b00111'00110'00101'00100'00011'00010'00001'00000;
+
+    bool isEdgeSolved(int edge) {
+        return (edges_solved >> edge) & 1;
+    }
+
+    bool isCornerSolved(int corner) {
+        return (corners_solved >> corner) & 1;
+    }
+
+    CubeState() {}
+};
+
+class Face {
 public:
     Vector3 position;
     Vector3 volume;
     Color color;
+
+    Face(Vector3 position, Vector3 volume, Color color) : position(position), volume(volume), color(color) {}
+
+    void draw(Camera camera) {
+        DrawCube(position, volume.x, volume.y, volume.z, color);
+    }
+};
+
+class Cubelet {
+public:
+    Vector3 position;
+    Vector3 volume;
     Color selectedColor = RED;
     bool selected = false;
 
-    Cube(Vector3 position, Vector3 volume, Color color) : position(position), volume(volume), color(color) {}
+    Cubelet(Vector3 position, Vector3 volume) : position(position), volume(volume) {
+
+    }
 
     void draw(Camera camera) {
         if (selected) {
@@ -62,6 +101,19 @@ public:
                point.z >= box.min.z && point.z <= box.max.z;
     }
 };
+
+class Corner {
+public:
+    Vector3 position;
+    Vector3 volume;
+    Color color;
+
+    Corner(Vector3 position, Vector3 volume, Color color) : position(position), volume(volume), color(color) {}
+
+    void draw(Camera camera) {
+
+    }
+}
 
 class CubeCollection {
 public:
