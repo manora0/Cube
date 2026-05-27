@@ -1,5 +1,6 @@
 #include "raylib.h"
 #include <cfloat>
+#include <cstdlib>
 #include <vector>
 #include <cstdint>
 #include <map>
@@ -17,6 +18,8 @@ Color cornerColors[8][3] = {
     { G, O, Y }, { O, B, Y }, { B, R, Y }, { R, G, Y }
 };
 
+enum side { FRONT, BACK, LEFT, RIGHT, TOP, BOTTOM };
+
 std::map<color, Color> colorMap = {
     { W, WHITE }, { R, RED }, { O, ORANGE }, { Y, YELLOW }, { G, GREEN }, { B, BLUE }
 };
@@ -24,10 +27,13 @@ std::map<color, Color> colorMap = {
 
 struct CubeState {
     // FRONT FACE IS GREEN
+    // FIRST BIT REPRESENTS ORIENTATION
 
     // LAYER                |------------D-----------|-----------M-----------|-----------U-----------|
     // POSITIONS            |---11-|--10-|--9--|--8--|--7--|--6--|--5--|--4--|--3--|--2--|--1--|--0--|
     uint64_t edges_solved = 0b01011'01010'01001'01000'00111'00110'00101'00100'00011'00010'00001'00000;
+
+    // FIRST TWO BITS REPRESENT ORIENTATION
     // LAYER                |------------D-------------|-----------U-----------|
     // POSITIONS            |-----7--|--6--|--5--|--4--|--3--|--2--|--1--|--0--|
     uint64_t corners_solved = 0b00111'00110'00101'00100'00011'00010'00001'00000;
@@ -60,17 +66,15 @@ class Cubelet {
 public:
     Vector3 position;
     Vector3 volume;
-    Color selectedColor = RED;
+    Color color = DARKGRAY;
     bool selected = false;
 
-    Cubelet(Vector3 position, Vector3 volume) : position(position), volume(volume) {
-
-    }
+    Cubelet(Vector3 position, Vector3 volume) : position(position), volume(volume) {}
 
     void draw(Camera camera) {
         if (selected) {
 
-            DrawCube(position, volume.x, volume.y, volume.z, selectedColor);
+            DrawCube(position, volume.x, volume.y, volume.z, color);
             DrawCubeWires(position, volume.x + 0.2f, volume.y + 0.2f, volume.z + 0.2f, GREEN);
         } else {
             DrawCube(position, volume.x, volume.y, volume.z, color);
@@ -102,26 +106,154 @@ public:
     }
 };
 
-class Corner {
+class Corner : public Cubelet {
+
 public:
-    Vector3 position;
-    Vector3 volume;
-    Color color;
+    std::vector<Face> faces;
 
-    Corner(Vector3 position, Vector3 volume, Color color) : position(position), volume(volume), color(color) {}
+    Corner(Vector3 position, Vector3 volume) : Cubelet(position, volume){
+        faces.reserve(3);
+        Color color1 = position.y < 0 ? colorMap[W] : colorMap[Y];
+        Color color2 = position.z < 0 ? colorMap[G] : colorMap[B];
+        Color color3 = position.x < 0 ? colorMap[R] : colorMap[O];
 
-    void draw(Camera camera) {
+        int signX = position.x < 0 ? -1 : 1;
+        int signY = position.y < 0 ? -1 : 1;
+        int signZ = position.z < 0 ? -1 : 1;
 
+        Vector3 position1 = { position.x, position.y + signY * volume.y / 2, position.z };
+        Vector3 position2 = { position.x, position.y, position.z + signZ * volume.z / 2 };
+        Vector3 position3 = { position.x + signX * volume.x / 2, position.y, position.z };
+
+        faces.push_back(Face(position1, { 1, .1, 1 }, color1));
+        faces.push_back(Face(position2, { 1, 1, .1 }, color2));
+        faces.push_back(Face(position3, { .1, 1, 1 }, color3));
     }
-}
-
-class CubeCollection {
-public:
-    std::vector<Cube> cubes;
 
     void draw(Camera camera) {
-        for (Cube& cube : cubes) {
-            cube.draw(camera);
+        Cubelet::draw(camera);
+        for (Face f: faces) {
+            f.draw(camera);
+        }
+    }
+};
+
+class Edge : public Cubelet {
+public:
+    std::vector<Face> faces;
+
+    Edge(Vector3 position, Vector3 volume) : Cubelet(position, volume) {
+        faces.reserve(2);
+
+        int signX = position.x == 0 ? 0 : (position.x < 0 ? -1 : 1);
+        int signY = position.y == 0 ? 0 : (position.y < 0 ? -1 : 1);
+        int signZ = position.z == 0 ? 0 : (position.z < 0 ? -1 : 1);
+
+        // Y face — top or bottom edges only
+        if (signY != 0) {
+            Color colorY = position.y < 0 ? colorMap[W] : colorMap[Y];
+            Vector3 posY = { position.x, position.y + signY * volume.y / 2, position.z };
+            faces.push_back(Face(posY, { 1.0f, 0.1f, 1.0f }, colorY));
+        }
+
+        // Z face — front or back
+        if (signZ != 0) {
+            Color colorZ = position.z < 0 ? colorMap[G] : colorMap[B];
+            Vector3 posZ = { position.x, position.y, position.z + signZ * volume.z / 2 };
+            faces.push_back(Face(posZ, { 1.0f, 1.0f, 0.1f }, colorZ));
+        }
+
+        // X face — left or right
+        if (signX != 0) {
+            Color colorX = position.x < 0 ? colorMap[O] : colorMap[R];
+            Vector3 posX = { position.x + signX * volume.x / 2, position.y, position.z };
+            faces.push_back(Face(posX, { 0.1f, 1.0f, 1.0f }, colorX));
+        }
+    }
+
+    void draw(Camera camera) {
+        Cubelet::draw(camera);
+        for (Face f : faces)
+            f.draw(camera);
+    }
+};
+
+class Core : public Cubelet {
+public:
+    std::vector<Face> faces;
+
+    Core(Vector3 position, Vector3 volume) : Cubelet(position, volume) {
+        faces.reserve(1);
+
+        int signX = position.x == 0 ? 0 : (position.x < 0 ? -1 : 1);
+        int signY = position.y == 0 ? 0 : (position.y < 0 ? -1 : 1);
+        int signZ = position.z == 0 ? 0 : (position.z < 0 ? -1 : 1);
+
+        if (signY != 0) {
+            Color colorY = position.y < 0 ? colorMap[W] : colorMap[Y];
+            Vector3 posY = { position.x, position.y + signY * volume.y / 2, position.z };
+            faces.push_back(Face(posY, { 1.0f, 0.1f, 1.0f }, colorY));
+        }
+
+        if (signZ != 0) {
+            Color colorZ = position.z < 0 ? colorMap[G] : colorMap[B];
+            Vector3 posZ = { position.x, position.y, position.z + signZ * volume.z / 2 };
+            faces.push_back(Face(posZ, { 1.0f, 1.0f, 0.1f }, colorZ));
+        }
+
+        if (signX != 0) {
+            Color colorX = position.x < 0 ? colorMap[O] : colorMap[R];
+            Vector3 posX = { position.x + signX * volume.x / 2, position.y, position.z };
+            faces.push_back(Face(posX, { 0.1f, 1.0f, 1.0f }, colorX));
+        }
+    }
+
+    void draw(Camera camera) {
+        Cubelet::draw(camera);
+        for (Face f : faces)
+            f.draw(camera);
+    }
+};
+
+class Cube {
+    public:
+    CubeState state;
+    std::vector<Cubelet*> cubelets;
+
+    Cube() {
+        cubelets.reserve(27);
+        initializeCubes();
+    };
+
+    void selectCube(Ray ray, RayCollision& collision) {
+
+        RayCollision closest = { 0 };
+        closest.hit = false;
+        closest.distance = FLT_MAX;
+        int closestIndex = -1;
+
+        for (int i = 0; i < cubelets.size(); i++) {
+            RayCollision hit = GetRayCollisionBox(ray, cubelets[i]->boundingBox());
+            if (hit.hit && hit.distance < closest.distance) {
+                closest = hit;
+                closestIndex = i;
+            }
+        }
+        collision = closest;
+        if (closestIndex != -1) {
+            deselectCubes();
+            cubelets[closestIndex]->selected = true;
+        }
+    }
+    void deselectCubes() {
+        for (Cubelet* cube: cubelets) {
+               cube->selected = false;
+        }
+    }
+
+    void draw(Camera camera) {
+        for (Cubelet* cub: cubelets) {
+            cub->draw(camera);
         }
     }
 
@@ -132,40 +264,75 @@ public:
         for (float x = -1; x < 2; x++) {
             for (float y = -1; y < 2; y++) {
                 for (float z = -1; z < 2; z++) {
-                    cubes.push_back(Cube({ x * stride, y * stride, z * stride }, { 1, 1, 1 }, GRAY));
+                    Vector3 pos = { x * stride, y * stride, z * stride };
+                    Vector3 vol = { 1, 1, 1 };
+                    int type = (x != 0 ? 1 : 0) + (y != 0 ? 1 : 0) + (z != 0 ? 1 : 0);
+                    if (type == 3) {
+                        cubelets.push_back(new Corner{ pos, vol });
+                    }
+                    if (type == 2) {
+                        cubelets.push_back(new Edge{ pos, vol });
+                    }
+                    if (type == 1) {
+                        cubelets.push_back(new Core{ pos, vol });
+                    }
                 }
             }
         }
     }
-
-    void selectCube(Ray ray, RayCollision& collision) {
-
-        RayCollision closest = { 0 };
-        closest.hit = false;
-        closest.distance = FLT_MAX;
-        int closestIndex = -1;
-
-        for (int i = 0; i < cubes.size(); i++) {
-            RayCollision hit = GetRayCollisionBox(ray, cubes[i].boundingBox());
-            if (hit.hit && hit.distance < closest.distance) {
-                closest = hit;
-                closestIndex = i;
-            }
-        }
-        collision = closest;
-        if (closestIndex != -1) {
-            deselectCubes();
-            cubes[closestIndex].selected = true;
-        }
-
-    }
-
-    void deselectCubes() {
-        for (Cube& cube : cubes) {
-            cube.selected = false;
-        }
-    }
 };
+
+// class CubeCollection {
+// public:
+//     std::vector<Cube> cubes;
+
+//     void draw(Camera camera) {
+//         for (Cube& cube : cubes) {
+//             cube.draw(camera);
+//         }
+//     }
+
+//     void initializeCubes() {
+//         float padding = 0.2f;
+//         float stride = 1.0 + padding;
+
+//         for (float x = -1; x < 2; x++) {
+//             for (float y = -1; y < 2; y++) {
+//                 for (float z = -1; z < 2; z++) {
+//                     cubes.push_back(Cube({ x * stride, y * stride, z * stride }, { 1, 1, 1 }, GRAY));
+//                 }
+//             }
+//         }
+//     }
+
+//     void selectCube(Ray ray, RayCollision& collision) {
+
+//         RayCollision closest = { 0 };
+//         closest.hit = false;
+//         closest.distance = FLT_MAX;
+//         int closestIndex = -1;
+
+//         for (int i = 0; i < cubes.size(); i++) {
+//             RayCollision hit = GetRayCollisionBox(ray, cubes[i].boundingBox());
+//             if (hit.hit && hit.distance < closest.distance) {
+//                 closest = hit;
+//                 closestIndex = i;
+//             }
+//         }
+//         collision = closest;
+//         if (closestIndex != -1) {
+//             deselectCubes();
+//             cubes[closestIndex].selected = true;
+//         }
+
+//     }
+
+//     void deselectCubes() {
+//         for (Cube& cube : cubes) {
+//             cube.selected = false;
+//         }
+//     }
+// };
 
 //------------------------------------------------------------------------------------
 // Program main entry point
@@ -190,8 +357,8 @@ int main(void)
     Ray ray = { 0 };                    // Picking line ray
     RayCollision collision = { 0 };     // Ray collision hit info
 
-    CubeCollection cubes;
-    cubes.initializeCubes();
+    Cube* cubes;
+    cubes->initializeCubes();
 
     SetTargetFPS(60);                   // Set our game to run at 60 frames-per-second
     //--------------------------------------------------------------------------------------
@@ -215,7 +382,7 @@ int main(void)
             ray = GetScreenToWorldRay(GetMousePosition(), camera);
             collision = { 0 };
 
-            cubes.selectCube(ray, collision);
+            cubes->selectCube(ray, collision);
         }
         //----------------------------------------------------------------------------------
 
@@ -227,7 +394,7 @@ int main(void)
 
             BeginMode3D(camera);
 
-                cubes.draw(camera);
+                cubes->draw(camera);
 
                 DrawRay(ray, MAROON);
                 DrawGrid(10, 1.0f);
